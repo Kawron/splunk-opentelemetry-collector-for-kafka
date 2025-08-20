@@ -1,6 +1,7 @@
 name: Splunk Otel Kafka Connector Functional Test
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
