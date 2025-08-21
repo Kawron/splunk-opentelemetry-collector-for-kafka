@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - non-functional-tests
   pull_request:
 
 env:
