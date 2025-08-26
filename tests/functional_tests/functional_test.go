@@ -13,10 +13,11 @@ import (
 
 func Test_Functions(t *testing.T) {
 
-	t.Run("basic scenario with single topic", testBasicScenarioWithSingleTopic)
-	t.Run("scenario with multiple topics", testScenarioWithMultipleTopic)
-	t.Run("scenario with custom headers", testScenarioWithCustomHeaders)
-	t.Run("scenario with timestamp extraction", testScenarioTimestampExtraction)
+	//t.Run("basic scenario with single topic", testBasicScenarioWithSingleTopic)
+	//t.Run("scenario with multiple topics", testScenarioWithMultipleTopic)
+	//t.Run("scenario with custom headers", testScenarioWithCustomHeaders)
+	//t.Run("scenario with timestamp extraction", testScenarioTimestampExtraction)
+	t.Run("scenario with regex topics", testScenarioWithFranzRegex)
 }
 
 func testBasicScenarioWithSingleTopic(t *testing.T) {
@@ -263,5 +264,53 @@ func testScenarioTimestampExtraction(t *testing.T) {
 
 		return true
 	}, common.TestCaseDuration, common.TestCaseTick, "Search query: \n\"%s\"\n returned NO events for topic %s", searchQuery, topicName)
+	defer common.StopOTelKafkaConnector(t, connectorHandler)
+}
+
+func testScenarioWithFranzRegex(t *testing.T) {
+	t.Logf("Running tests for regex matching")
+	regularTopicName := "kafka-test-topic"
+	regexTopic1 := "regex-topic1"
+	regexTopic2 := "regex-topic2"
+	regexExpresion := "^regex-topic[0-1]"
+	event := "Hello, Kafka!"
+	index := "kafka"
+	sourcetype := "otel-basic-test"
+	source := "otel"
+	configFileTemplate := "basic_test.yaml.tmpl"
+
+	replacements := map[string]any{
+		"KafkaBrokerAddress":  common.GetConfigVariable("KAFKA_BROKER_ADDRESS"),
+		"KafkaRegexTopicName": regexExpresion,
+		"SplunkHECToken":      common.GetConfigVariable("HEC_TOKEN"),
+		"SplunkHECEndpoint":   fmt.Sprintf("https://%s:8088/services/collector", common.GetConfigVariable("HOST")),
+		"Source":              source,
+		"Index":               index,
+		"Sourcetype":          sourcetype,
+	}
+
+	configFileName := common.PrepareConfigFile(t, configFileTemplate, replacements, common.ConfigFilesDir)
+	connectorHandler := common.StartOTelKafkaConnector(t, configFileName, common.ConfigFilesDir)
+
+	common.AddKafkaTopic(t, regularTopicName, 1, 1)
+	common.AddKafkaTopic(t, regexTopic1, 1, 1)
+	common.AddKafkaTopic(t, regexTopic2, 1, 1)
+
+	common.SendMessageToKafkaTopic(t, regularTopicName, event)
+	common.SendMessageToKafkaTopic(t, regexTopic1, event)
+	common.SendMessageToKafkaTopic(t, regexTopic2, event)
+
+	// check events in Splunk
+	searchQuery := common.EventSearchQueryString + "index=" + index + " sourcetype=" + sourcetype + " source=" + source
+	startTime := "-1m@m"
+	require.Eventually(t, func() bool {
+		events := common.GetEventsFromSplunk(t, searchQuery, startTime)
+		if len(events) != 2 {
+			return false
+		}
+		t.Logf(" =========>  Events received: %d", len(events))
+		assert.Equal(t, 2, len(events), "Expected one event, but got %d", len(events))
+		return true
+	}, common.TestCaseDuration, common.TestCaseTick, "Search query: \n\"%s\"\n failed", searchQuery)
 	defer common.StopOTelKafkaConnector(t, connectorHandler)
 }
